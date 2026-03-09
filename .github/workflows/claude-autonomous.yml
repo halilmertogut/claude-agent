@@ -1,0 +1,54 @@
+name: Claude Code Autonomous Worker
+
+on:
+  issues:
+    types: [opened, labeled, assigned]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-work:
+    # Run when issue has the trigger label OR when @claude is mentioned
+    if: |
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'claude-task')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        uses: anthropic/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # Trigger on "claude-task" label (Zapier will add this label)
+          label_trigger: "claude-task"
+
+          # Also trigger on @claude mention in comments
+          trigger_phrase: "@claude"
+
+          # Custom instructions for autonomous work
+          prompt: |
+            You are an autonomous coding agent working on tasks from Asana.
+            When working on an issue:
+            1. Read the issue title and description carefully
+            2. Implement the requested changes
+            3. Write clean, tested, production-ready code
+            4. Create a PR with a clear description linking back to the issue
+
+          # Model and tool configuration via claude_args
+          claude_args: "--model claude-sonnet-4-6 --max-turns 50"
+
+          # Branch naming: auto/issue-42-1234567890
+          branch_prefix: "auto/"
+
+          # Show progress as comments on the issue
+          track_progress: "true"
