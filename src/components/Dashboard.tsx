@@ -1,36 +1,53 @@
-import React, { useState, useEffect } from "react";
-import { Icon } from "lucide-react";
+import { Suspense } from "react";
 
-// Poorly written component — waterfall fetching, barrel imports, no Suspense
-export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [comments, setComments] = useState([]);
-  const [loading, setLoading] = useState(true);
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
 
-  useEffect(() => {
-    async function loadData() {
-      const userData = await fetch("/api/user").then((r) => r.json());
-      setUser(userData);
+interface Post {
+  id: number;
+  title: string;
+  body: string;
+}
 
-      const postsData = await fetch("/api/posts").then((r) => r.json());
-      setPosts(postsData);
+interface Comment {
+  id: number;
+  text: string;
+  postId: number;
+}
 
-      const commentsData = await fetch("/api/comments").then((r) => r.json());
-      setComments(commentsData);
+async function fetchUser(): Promise<User> {
+  const res = await fetch("/api/user");
+  if (!res.ok) throw new Error("Failed to fetch user");
+  return res.json() as Promise<User>;
+}
 
-      setLoading(false);
-    }
-    loadData();
-  }, []);
+async function fetchPosts(): Promise<Post[]> {
+  const res = await fetch("/api/posts");
+  if (!res.ok) throw new Error("Failed to fetch posts");
+  return res.json() as Promise<Post[]>;
+}
 
-  if (loading) return <div>Loading...</div>;
+async function fetchComments(): Promise<Comment[]> {
+  const res = await fetch("/api/comments");
+  if (!res.ok) throw new Error("Failed to fetch comments");
+  return res.json() as Promise<Comment[]>;
+}
+
+async function DashboardContent(): Promise<JSX.Element> {
+  const [user, posts, comments] = await Promise.all([
+    fetchUser(),
+    fetchPosts(),
+    fetchComments(),
+  ]);
 
   return (
     <div>
-      <h1>Welcome {user?.name}</h1>
+      <h1>Welcome {user.name}</h1>
       <div>
-        {posts.map((post: any) => (
+        {posts.map((post) => (
           <div key={post.id}>
             <h2>{post.title}</h2>
             <p>{post.body}</p>
@@ -38,12 +55,28 @@ export default function Dashboard() {
         ))}
       </div>
       <div>
-        {comments.map((comment: any) => (
+        {comments.map((comment) => (
           <div key={comment.id}>
             <p>{comment.text}</p>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function DashboardSkeleton(): JSX.Element {
+  return (
+    <div>
+      <div>Loading dashboard...</div>
+    </div>
+  );
+}
+
+export function Dashboard(): JSX.Element {
+  return (
+    <Suspense fallback={<DashboardSkeleton />}>
+      <DashboardContent />
+    </Suspense>
   );
 }
