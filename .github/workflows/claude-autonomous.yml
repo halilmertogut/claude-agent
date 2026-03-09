@@ -27,7 +27,9 @@ jobs:
       - name: Run Claude Code
         uses: anthropic/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Auth: subscription token (Pro/Max) OR API key — set one of these as GitHub Secret
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
           # Trigger on "claude-task" label (Zapier will add this label)
           label_trigger: "claude-task"
