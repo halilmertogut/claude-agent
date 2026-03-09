@@ -1,0 +1,82 @@
+# COPY THIS FILE to target repos:
+#   Cathoven-AI/nexthub/.github/workflows/claude-worker.yml
+#   Cathoven-AI/cathoven/.github/workflows/claude-worker.yml
+
+name: Claude Code Worker
+
+on:
+  repository_dispatch:
+    types: [claude-task]
+
+jobs:
+  claude-work:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Write prompt file
+        env:
+          TASK_TITLE: ${{ github.event.client_payload.title }}
+          TASK_BODY: ${{ github.event.client_payload.body }}
+          ISSUE_URL: ${{ github.event.client_payload.issue_url }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+        shell: bash
+        run: |
+          mkdir -p /tmp/claude-prompts
+          cat > /tmp/claude-prompts/prompt.md <<'INSTRUCTIONS'
+          You are an autonomous coding agent working on a task from Asana.
+
+          Instructions:
+          1. Read the task title and description carefully
+          2. Explore the codebase to understand the architecture
+          3. Implement the requested changes
+          4. Write clean, tested, production-ready code
+          5. Create a PR with a clear description
+          INSTRUCTIONS
+
+          printf '\n## Task\n**Title**: %s\n\n%s\n' "$TASK_TITLE" "$TASK_BODY" >> /tmp/claude-prompts/prompt.md
+          printf '\n## Source\nAsana orchestrator issue: %s\n' "$ISSUE_URL" >> /tmp/claude-prompts/prompt.md
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropic/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt_file: /tmp/claude-prompts/prompt.md
+          claude_args: "--model claude-sonnet-4-6 --max-turns 50"
+          branch_prefix: "auto/"
+          track_progress: "true"
+
+      - name: Report back to orchestrator
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.ORG_DISPATCH_TOKEN }}
+          ORCHESTRATOR_REPO: ${{ github.event.client_payload.orchestrator_repo }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+        shell: bash
+        run: |
+          STATUS="completed"
+          PR_URL=""
+          if [ -n "$BRANCH" ]; then
+            PR_URL=$(gh pr list --head "$BRANCH" --json url --jq '.[0].url' 2>/dev/null || echo "")
+          fi
+
+          COMMENT="**Claude Code finished on \`${{ github.repository }}\`**"
+          if [ -n "$PR_URL" ]; then
+            COMMENT="$COMMENT\n\nPR: $PR_URL"
+          else
+            COMMENT="$COMMENT\n\nNo PR created. Check [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$ORCHESTRATOR_REPO" \
+            --body "$(printf '%b' "$COMMENT")"

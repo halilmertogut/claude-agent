@@ -3,145 +3,107 @@
 ## Mimari
 
 ```
-Asana (etiket) → Zapier (Zap #1) → GitHub Issue → Claude Code Action → PR
-                  Zapier (Zap #2) ← GitHub PR created → Asana task update
+Asana (claude-auto tag)
+  → Zapier
+    → halilmertogut/claude-agent Issue (label: claude-task + fe/be)
+      → Orchestrator workflow
+        → repository_dispatch
+          → Cathoven-AI/nexthub (FE) veya Cathoven-AI/cathoven (BE)
+            → Claude Code çalışır → PR açar
+              → Orchestrator issue'ya sonuç comment bırakır
 ```
 
 ## Ön Koşullar
 
-- GitHub repo (public veya private)
-- Anthropic API key (`ANTHROPIC_API_KEY`)
-- Zapier hesabı (Pro plan — multi-step zap gerekli)
+- Cathoven-AI org'da admin/write erişim
+- Zapier hesabı
 - Asana hesabı
 
 ---
 
-## Adım 1: GitHub Repo Hazırlığı
+## Adım 1: GitHub Secrets (3 repo'ya da ekle)
 
-### 1.1 Secret Ekle
+### 1.1 OAuth Token oluştur
 
-GitHub repo → Settings → Secrets and variables → Actions → New repository secret:
-
-| Secret Name          | Value                    |
-|---------------------|--------------------------|
-| `ANTHROPIC_API_KEY` | `sk-ant-...` API anahtarın |
-
-### 1.2 Label Oluştur
-
-GitHub repo → Issues → Labels → "claude-task" adında yeni label oluştur.
-
-### 1.3 Workflow Dosyası
-
-`.github/workflows/claude-autonomous.yml` dosyası zaten bu repoda mevcut.
-Bunu repo'na push et.
-
----
-
-## Adım 2: Zapier Zap #1 — Asana → GitHub Issue
-
-### Trigger: Asana
-
-1. Zapier'da "Create a Zap" tıkla
-2. Trigger app: **Asana**
-3. Event: **"Tag Added to Task"**
-   - Alternatif: "New Task in Project" (belirli bir project section için)
-4. Asana hesabını bağla
-5. Konfigürasyon:
-   - **Workspace**: Senin workspace'in
-   - **Tag**: "claude-auto" (Asana'da bu tag'i oluştur)
-
-### Action: GitHub
-
-1. Action app: **GitHub**
-2. Event: **"Create Issue"**
-3. GitHub hesabını bağla
-4. Konfigürasyon:
-   - **Repo**: claude-agent (veya hedef repo)
-   - **Title**: `[Asana Auto] {{Task Name}}`
-   - **Body**:
-     ```
-     ## Asana Task
-     **Task**: {{Task Name}}
-     **URL**: {{Task URL}}
-
-     ## Description
-     {{Task Notes}}
-
-     ## Acceptance Criteria
-     {{Task Notes}}
-
-     ---
-     _Otomatik oluşturuldu: Asana → Zapier → GitHub_
-     ```
-   - **Labels**: `claude-task`
-
-Bu kadar! Label "claude-task" olduğu için GitHub Action otomatik tetiklenecek.
-
----
-
-## Adım 3 (Opsiyonel): Zapier Zap #2 — PR → Asana Update
-
-### Trigger: GitHub
-
-1. Trigger app: **GitHub**
-2. Event: **"New Pull Request"**
-3. Filtre: PR body'de "Asana" kelimesi geçiyor
-
-### Action: Asana
-
-1. Action app: **Asana**
-2. Event: **"Update Task"** veya **"Create Comment on Task"**
-3. Konfigürasyon:
-   - Asana task'ı Zapier'ın ilk zap'ından gelen task ID ile eşleştir
-   - Comment: `Claude Code PR oluşturdu: {{PR URL}}`
-   - Status: "In Review" olarak güncelle
-
----
-
-## Adım 4: Test Et
-
-1. Asana'da bir task oluştur, detaylı description yaz
-2. Task'a "claude-auto" tag'ini ekle
-3. Zapier tetiklenir → GitHub Issue oluşur
-4. GitHub Action tetiklenir → Claude Code çalışır
-5. Claude Code PR açar
-6. (Opsiyonel) Zapier PR'ı yakalar → Asana'yı günceller
-
----
-
-## Konfigürasyon Seçenekleri
-
-### Model Seçimi
-
-Workflow dosyasında `model` parametresi:
-- `claude-sonnet-4-6` — Hızlı, maliyet-etkin (önerilen)
-- `claude-opus-4-6` — Karmaşık tasklar için
-
-### Timeout
-
-- `timeout_minutes: 30` — Basit tasklar için yeterli
-- Karmaşık implementasyonlar için 60'a çıkarılabilir
-
-### İzin Verilen Araçlar
-
-`allowed_tools` ile Claude'un hangi araçları kullanabileceğini kısıtla:
-- `Bash,Read,Write,Edit,Glob,Grep` — Standart set
-- Güvenlik için `Bash(git:*,npm:*,node:*)` gibi pattern ile kısıtlanabilir
-
-### Budget Kontrolü
-
-Workflow'a eklenebilir:
-```yaml
-max_budget_usd: 5  # Task başına maksimum harcama
+Ayrı bir terminalde:
+```bash
+claude setup-token
 ```
 
+### 1.2 Secrets ekle
+
+**halilmertogut/claude-agent** (orchestrator):
+| Secret | Açıklama |
+|--------|----------|
+| `ORG_DISPATCH_TOKEN` | Org repo'larına dispatch gönderebilen PAT (classic, `repo` scope) |
+
+**Cathoven-AI/nexthub** ve **Cathoven-AI/cathoven** (workers):
+| Secret | Açıklama |
+|--------|----------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` çıktısı |
+| `ORG_DISPATCH_TOKEN` | Orchestrator'a geri comment atabilmek için aynı PAT |
+
+### 1.3 Labels oluştur
+
+**halilmertogut/claude-agent** repo'sunda:
+- `claude-task` — Zapier'dan gelen task'ları tetikler
+- `fe` — Frontend (nexthub) repo'suna yönlendirir
+- `be` — Backend (cathoven) repo'suna yönlendirir
+
 ---
 
-## Güvenlik Notları
+## Adım 2: Workflow dosyaları
 
-1. **API Key**: Sadece GitHub Secrets üzerinden, asla hardcode etme
-2. **Allowed Tools**: Minimum gerekli araç setini ver
-3. **Branch Protection**: main branch'e direct push'u engelle, sadece PR ile
-4. **Issue Sanitization**: Workflow'da issue içeriği env var ile geçiriliyor (injection koruması)
-5. **Budget Limit**: `max_budget_usd` ile maliyet kontrolü
-6. **Timeout**: Sonsuz çalışmayı engeller
+### Orchestrator (bu repo — zaten mevcut)
+`.github/workflows/claude-autonomous.yml`
+
+### Workers (hedef repo'lara kopyala)
+`worker-workflow-template.yml` dosyasını kopyala:
+- `Cathoven-AI/nexthub/.github/workflows/claude-worker.yml`
+- `Cathoven-AI/cathoven/.github/workflows/claude-worker.yml`
+
+---
+
+## Adım 3: Zapier Zap
+
+### Trigger: Asana
+- App: **Asana**
+- Event: **Tag Added to Task**
+- Tag: **claude-auto**
+
+### Action: GitHub — Create Issue
+- Repo: **halilmertogut/claude-agent**
+- Title: `[Asana] {{Task Name}}`
+- Body:
+  ```
+  ## Asana Task
+  **URL**: {{Task URL}}
+
+  ## Description
+  {{Task Notes}}
+  ```
+- Labels: `claude-task,fe` veya `claude-task,be`
+
+> Zapier'da label'ı dinamik yapmak için: Asana task'ta section/tag ile
+> FE/BE ayrımı yapıp Zapier filter + paths kullanabilirsin.
+
+---
+
+## Adım 4: Test
+
+1. Asana'da bir task oluştur, detaylı description yaz
+2. Task'a `claude-auto` tag'i ekle
+3. Zapier tetiklenir → claude-agent'ta Issue açılır
+4. Orchestrator issue'daki `fe`/`be` label'a göre dispatch eder
+5. Hedef repo'da Claude Code çalışır, PR açar
+6. Sonuç orchestrator issue'ya comment olarak döner
+
+---
+
+## Güvenlik
+
+1. **Secrets**: Sadece GitHub Secrets, asla hardcode
+2. **PAT scope**: `repo` minimum — `admin:org` verme
+3. **Branch protection**: main'e direct push kapalı
+4. **Input sanitization**: Tüm workflow'larda env var kullanılıyor
+5. **Model budget**: `claude_args` içinde `--max-turns 50` limiti

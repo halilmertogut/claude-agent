@@ -1,56 +1,60 @@
-name: Claude Code Autonomous Worker
+name: Orchestrator — Route Asana tasks to target repos
 
 on:
   issues:
-    types: [opened, labeled, assigned]
-  issue_comment:
-    types: [created]
+    types: [opened, labeled]
 
 jobs:
-  claude-work:
-    # Run when issue has the trigger label OR when @claude is mentioned
-    if: |
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'claude-task')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+  dispatch:
+    if: contains(github.event.issue.labels.*.name, 'claude-task')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - name: Parse target repo from labels
+        id: target
+        env:
+          LABELS_JSON: ${{ toJson(github.event.issue.labels.*.name) }}
+        shell: bash
+        run: |
+          # Labels: "claude-task" + one of "fe" or "be"
+          if echo "$LABELS_JSON" | grep -q '"fe"'; then
+            echo "repo=Cathoven-AI/nexthub" >> "$GITHUB_OUTPUT"
+            echo "target=fe" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS_JSON" | grep -q '"be"'; then
+            echo "repo=Cathoven-AI/cathoven" >> "$GITHUB_OUTPUT"
+            echo "target=be" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=none" >> "$GITHUB_OUTPUT"
+            echo "target=unknown" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Run Claude Code
-        uses: anthropic/claude-code-action@v1
-        with:
-          # Auth: subscription token (Pro/Max) OR API key — set one of these as GitHub Secret
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Comment if no target
+        if: steps.target.outputs.repo == 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --body "Missing target label. Add **fe** or **be** label to route this task."
 
-          # Trigger on "claude-task" label (Zapier will add this label)
-          label_trigger: "claude-task"
-
-          # Also trigger on @claude mention in comments
-          trigger_phrase: "@claude"
-
-          # Custom instructions for autonomous work
-          prompt: |
-            You are an autonomous coding agent working on tasks from Asana.
-            When working on an issue:
-            1. Read the issue title and description carefully
-            2. Implement the requested changes
-            3. Write clean, tested, production-ready code
-            4. Create a PR with a clear description linking back to the issue
-
-          # Model and tool configuration via claude_args
-          claude_args: "--model claude-sonnet-4-6 --max-turns 50"
-
-          # Branch naming: auto/issue-42-1234567890
-          branch_prefix: "auto/"
-
-          # Show progress as comments on the issue
-          track_progress: "true"
+      - name: Dispatch to target repo
+        if: steps.target.outputs.repo != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.ORG_DISPATCH_TOKEN }}
+          TARGET_REPO: ${{ steps.target.outputs.repo }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        shell: bash
+        run: |
+          gh api "repos/$TARGET_REPO/dispatches" \
+            --method POST \
+            --field event_type="claude-task" \
+            --field "client_payload[title]=$ISSUE_TITLE" \
+            --field "client_payload[body]=$ISSUE_BODY" \
+            --field "client_payload[issue_number]=$ISSUE_NUMBER" \
+            --field "client_payload[issue_url]=$ISSUE_URL" \
+            --field "client_payload[orchestrator_repo]=${{ github.repository }}"
