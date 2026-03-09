@@ -1,0 +1,36 @@
+name: Claude Code — Test (single repo)
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-work:
+    if: |
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'claude-task')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Claude Code
+        uses: anthropic/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          label_trigger: "claude-task"
+          trigger_phrase: "@claude"
+          prompt: |
+            You are an autonomous coding agent.
+            Read the issue carefully and implement what is requested.
+            Write clean, production-ready code.
+          claude_args: "--model claude-sonnet-4-6 --max-turns 30"
+          branch_prefix: "auto/"
+          track_progress: "true"
