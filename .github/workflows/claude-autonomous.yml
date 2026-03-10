@@ -2,7 +2,7 @@ name: Orchestrator — Route Asana tasks to target repos
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 jobs:
   dispatch:
