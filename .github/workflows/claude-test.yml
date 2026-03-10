@@ -2,7 +2,7 @@ name: Claude Code — Test (single repo)
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
   issue_comment:
     types: [created]
 
