@@ -16,7 +16,6 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -25,7 +24,7 @@ jobs:
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           label_trigger: "claude-task"
           trigger_phrase: "@claude"
           prompt: |
